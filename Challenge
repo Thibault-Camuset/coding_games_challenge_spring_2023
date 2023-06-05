@@ -1,0 +1,324 @@
+import java.util.*;
+import java.util.stream.Collectors;
+import java.io.*;
+import java.math.*;
+
+class Player {
+
+    static List<Integer> oppBases = new ArrayList<Integer>();
+    static List<Integer> myBases = new ArrayList<Integer>();
+    static Integer myTotalAnts = 0;
+    static List<Cell> cells = new ArrayList<Cell>();
+    static Integer numberOfCells = 0;
+    static Integer connectedCellsCount = 0;
+    static List<String> messages = new ArrayList<String>();
+    static Random rand = new Random();
+    static List<Cell> moves = new ArrayList<Cell>();
+    static Integer myScore = 0;
+    static Integer oppScore = 0;
+    static Integer turns = 0;
+    static Integer changingPoint = 0;
+    static Integer remainingEggs = 0;
+
+    // Méthode qui servira a calculer les distances entre les cellules
+    static Integer[] distances(int source) {
+
+        // Tableau des distances
+        Integer[] dist = new Integer[cells.size()];
+
+        // Initialisation : toutes les distances à l'infini sauf la source à 0
+        Arrays.fill(dist, Integer.MAX_VALUE); 
+        dist[source] = 0;
+
+        // File de priorité pour extraire le sommet avec la plus petite distance
+        PriorityQueue<Integer> pq = new PriorityQueue<>();
+
+        // Ajoute la source à la file de priorité
+        pq.add(source); 
+
+        while (!pq.isEmpty()) {
+
+            // Extraire le sommet avec la plus petite distance
+            int u = pq.poll();
+
+            // Traiter les voisins du sommet u
+            for (Integer v : cells.get(u).neighbours) {
+
+                if(v != -1) {
+                        // Calculer la distance alternative
+                    int alt = dist[u] + 1; 
+
+                    // Mettre à jour la distance si une meilleure est trouvée
+                    if (alt < dist[v]) {
+                        dist[v] = alt;
+                        pq.add(v); 
+                    }
+                }
+                
+            }
+        }
+
+        // On retourne le tableau des distances de toutes les cellules par rapport à celle entrée en input
+        return dist;
+    }
+    
+    public static void main(String args[]) {
+
+        // initialisation des messages qui seront aléatoirement affichés
+        messages.add("Pony?");
+        messages.add("Pony PONY!");
+        messages.add("Ponyyyyyy.");
+
+        Scanner in = new Scanner(System.in);
+        numberOfCells = in.nextInt(); // amount of hexagonal cells in this map
+
+        changingPoint = numberOfCells < 50 ? 15 : 30;
+
+        for (int i = 0; i < numberOfCells; i++) {
+            int type = in.nextInt(); // 0 for empty, 1 for eggs, 2 for crystal
+            int initialResources = in.nextInt(); // the initial amount of eggs/crystals on this cell
+
+           // On crée une liste pour les possibles cases voisines
+           List<Integer> neighbours = new ArrayList<Integer>();
+           neighbours.add(in.nextInt());
+           neighbours.add(in.nextInt());
+           neighbours.add(in.nextInt());
+           neighbours.add(in.nextInt());
+           neighbours.add(in.nextInt());
+           neighbours.add(in.nextInt());
+
+            Cell cell = new Cell(i,CellType.values()[type], initialResources, neighbours);
+            cells.add(cell);
+        }
+
+        // Nombre total de bases
+        int numberOfBases = in.nextInt();
+        
+        // Liste des bases du joueur
+        for (int i = 0; i < numberOfBases; i++) {
+            int myBaseIndex = in.nextInt();
+            myBases.add(myBaseIndex);
+        }
+
+        // Liste des bases de l'adversaire
+        for (int i = 0; i < numberOfBases; i++) {
+            int oppBaseIndex = in.nextInt();
+            oppBases.add(oppBaseIndex);
+        }
+
+        // Calcul des distances des cellules par rapport à elles-mêmes
+        Integer cellIndex = 0;
+        for (Cell cell : cells) {
+            cell.distances = distances(cellIndex++);
+        }
+
+        // Boucle du jeu
+        while (true) {
+
+            turns++;
+            remainingEggs = 0;
+
+            connectedCellsCount = 0;
+            myTotalAnts = 0;
+
+            myScore = in.nextInt();
+            oppScore = in.nextInt();
+
+            // Données mise à jour de l'état des cellules
+            for (int i = 0; i < numberOfCells; i++) {
+                cells.get(i).resources = in.nextInt();
+                if(cells.get(i).type == CellType.EGG) {
+                    remainingEggs += cells.get(i).resources; 
+                }
+                cells.get(i).myAnts = in.nextInt(); 
+                cells.get(i).oppAnts = in.nextInt(); 
+                cells.get(i).visited = false;
+                cells.get(i).connected = false;
+                myTotalAnts += cells.get(i).myAnts;
+            }
+
+            gameLoop();
+
+            // WAIT | LINE <sourceIdx> <targetIdx> <strength> | BEACON <cellIdx> <strength> | MESSAGE <text>
+            System.out.println("MESSAGE "+messages.get(rand.nextInt(messages.size())));
+
+        }
+        
+    }
+
+    static void gameLoop() {
+        while(true) {
+
+            Integer eggCellCount = Integer.valueOf((int) cells
+                                    .stream()
+                                    .filter( c -> c.connected )
+                                    .count())
+                                ;
+
+            if(turns < changingPoint && remainingEggs > 0) {
+
+                // A améliorer
+                for(int i = 0; i < myBases.size(); i++) {
+
+                    if(cells.stream().filter(a -> !a.visited && a.type == CellType.EGG && a.resources > 0).count() == 0) {
+                        return;
+                    }
+
+                    if(eggCellCount >= myBases.size() * 3) {
+                        return;
+                    }
+
+                    Cell currentBase = cells.get(myBases.get(i));
+                    final Integer baseIndex = myBases.get(i);
+                    currentBase.visited = true;
+                    currentBase.connected = true;
+
+                    Comparator<Cell> distanceComparator = ( (a,b) -> a.distances[baseIndex].compareTo(b.distances[baseIndex]) );
+                    Comparator<Cell> typeComparator = ( (c,d) -> c.type.compareTo(d.type) );
+
+                    Cell cell = cells
+                                .stream()
+                                .sorted( distanceComparator.thenComparing(typeComparator) )
+                                .filter( c -> c.type == CellType.EGG && c.resources > 0 && !c.visited )
+                                .findFirst()
+                                .get()
+                            ;
+
+                    Cell cellToConnect = cells
+                                        .stream()
+                                        .filter( a -> a.connected )
+                                        .sorted( (a,b) -> a.distances[cell.index].compareTo(b.distances[cell.index]) )
+                                        .findFirst()
+                                        .get()
+                                    ;
+
+                    cell.visited = true;
+                    System.err.println("Toto");
+                    Integer distanceToCell = cellToConnect.distances[cell.index] * 2;
+
+                    System.err.println("ConnectedCellsCount " +connectedCellsCount);
+                    System.err.println("distanceToCell " +distanceToCell);
+                    System.err.println("myTotalAnts " +myTotalAnts);
+                    if(connectedCellsCount + distanceToCell > myTotalAnts ) {
+                        continue;
+                    }
+                    cell.connected = true;
+
+                    connectedCellsCount += distanceToCell;
+
+                    System.out.print("LINE ");
+                    System.out.print(cell.index);
+                    System.out.print(" ");
+                    System.out.print(cellToConnect.index);
+                    System.out.print(" 1;");
+                    
+                }
+                
+            } else {
+
+                // A améliorer
+                for(int i = 0; i < myBases.size(); i++) {
+
+                    if(cells.stream().filter(a -> !a.visited && a.type != CellType.EMPTY && a.resources > 0).count() == 0) {
+                        return;
+                    }
+
+                    Cell currentBase = cells.get(myBases.get(i));
+                    final Integer baseIndex = myBases.get(i);
+                    currentBase.visited = true;
+                    currentBase.connected = true;
+
+                    Comparator<Cell> distanceComparator = ( (a,b) -> a.distances[baseIndex].compareTo(b.distances[baseIndex]) );
+                    Comparator<Cell> typeComparator = ( (c,d) -> c.type.compareTo(d.type) );
+
+                    Cell cell = cells
+                                .stream()
+                                .sorted( distanceComparator.thenComparing(typeComparator) )
+                                .filter( c -> c.type != CellType.EMPTY && c.resources > 0 && !c.visited )
+                                .findFirst()
+                                .get()
+                            ;
+
+                    Cell cellToConnect = cells
+                                        .stream()
+                                        .filter( a -> a.connected )
+                                        .sorted( (a,b) -> a.distances[cell.index].compareTo(b.distances[cell.index]) )
+                                        .findFirst()
+                                        .get()
+                                    ;
+
+                    cell.visited = true;
+                    Integer distanceToCell = cellToConnect.distances[cell.index] * 2;
+
+                    System.err.println("ConnectedCellsCount " +connectedCellsCount);
+                    System.err.println("distanceToCell " +distanceToCell);
+                    System.err.println("myTotalAnts " +myTotalAnts);
+                    if(connectedCellsCount + distanceToCell > myTotalAnts ) {
+                        continue;
+                    }
+                    cell.connected = true;
+
+                    connectedCellsCount += distanceToCell;
+                    Integer lineStrength = cell.oppAnts > 0 ? 5 : 2;
+
+                    System.out.print("LINE ");
+                    System.out.print(cell.index);
+                    System.out.print(" ");
+                    System.out.print(cellToConnect.index);
+                    System.out.print(" "+lineStrength+";");
+                    
+                }
+
+            }
+
+
+        }
+    }
+
+}
+
+// Entitée cellule et ses attributs
+class Cell {
+
+    public Integer index;
+    public CellType type;
+    public Integer initialResources;
+    public List<Integer> neighbours;
+
+    public Integer neigh0;
+    public Integer neigh1;
+    public Integer neigh2;
+    public Integer neigh3;
+    public Integer neigh4;
+    public Integer neigh5;
+
+    public Integer resources;
+    public Integer myAnts;
+    public Integer oppAnts;
+
+    public Integer[] distances;
+
+    public boolean visited = false;
+    public boolean connected = false;
+
+    // Constructeur et les attributs nécessaires pour l'établissement initial des cellules
+    public Cell(
+        Integer index,
+        CellType type, 
+        Integer initialResources, 
+        List<Integer> neighbours
+        ) {
+        this.index = index;
+        this.type = type;
+        this.initialResources = initialResources;
+        this.neighbours = neighbours;
+    }
+
+}
+
+// Enumeration pour les types de cellules (ressources)
+enum CellType {
+    EMPTY,
+    EGG,
+    CRYSTAL
+}
